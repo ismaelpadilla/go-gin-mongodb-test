@@ -1,8 +1,10 @@
-# go-mux-mongodb-test
+# go-gin-mongodb-test
 
-A very basic RESTful API using [gorilla/mux](https://github.com/gorilla/mux) and MongoDB.
+A very basic RESTful API using [Gin](https://github.com/gin-gonic/gin) and MongoDB.
 
 There's little to no request validation. Attempting to get an object using an invalid id will result in an error.
+
+There is a sibling repo that uses [gorilla/mux](https://github.com/gorilla/mux) instead of gin: https://github.com/ismaelpadilla/go-mux-mongodb-test
 
 ## Defaults
 * The API runs on port 8080. Try navigating to http://localhost:8080/test
@@ -14,7 +16,7 @@ There's little to no request validation. Attempting to get an object using an in
 Build the go image from the `go` folder:
 
 ```sh
-docker build --tag mux-test .
+docker build --tag gin-test .
 ```
 
 From the main folder, run everything with

@@ -2,15 +2,13 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/gorilla/mux"
+	"github.com/gin-gonic/gin"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -66,62 +64,36 @@ func main() {
 }
 
 func configureRoutes() {
-	router := mux.NewRouter()
-	router.HandleFunc("/test", TestHandler)
+	router := gin.Default()
 
-	router.HandleFunc("/stuff", GetAllStuff).Methods("GET")
-	router.HandleFunc("/stuff", SaveStuff).Methods("POST")
-	router.HandleFunc("/stuff/{id}", GetStuffById).Methods("GET")
-	router.HandleFunc("/stuff/{id}", DeleteStuffById).Methods("DELETE")
+	router.GET("/test", TestHandler)
+	router.POST("/stuff", SaveStuff)
+	router.GET("/stuff", GetAllStuff)
+	router.GET("/stuff/:id", GetStuffById)
+    router.DELETE("/stuff/:id", DeleteStuffById)
 
-	router.Use(routerMiddleware)
-
-	srv := &http.Server{
-		Handler: removeTrailingSlash(router),
-		Addr:    "0.0.0.0:8080",
-	}
-	srv.ListenAndServe()
-}
-
-// middleware to set content type for every request.
-// Otherwise we have tow rite this on every route handler:
-//   w.Header().Set("Content-Type", "application/json")
-func routerMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Add("Content-Type", "application/json")
-		next.ServeHTTP(w, r)
-	})
-}
-
-// because mux treats "/stuff" and "/stuff/" as different routes,
-// we remove the trailing slash ourselves
-func removeTrailingSlash(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.URL.Path = strings.TrimSuffix(r.URL.Path, "/")
-		next.ServeHTTP(w, r)
-	})
+	router.Run()
 }
 
 // return all objects
-func GetAllStuff(w http.ResponseWriter, _ *http.Request) {
+func GetAllStuff(c *gin.Context) {
 	cursor, err := collection.Find(ctx, bson.M{})
 	if err != nil {
 		log.Print(err)
 	}
-	var allStuff []bson.M
-	if err = cursor.All(ctx, &allStuff); err != nil {
+
+	var allStuffDecoded []Stuff
+	if err = cursor.All(ctx, &allStuffDecoded); err != nil {
 		log.Print(err)
 	}
 
-	allStuffJson, _ := json.Marshal(allStuff)
-	fmt.Fprint(w, string(allStuffJson))
+	c.JSON(http.StatusOK, allStuffDecoded)
 }
 
 // return object by id
-func GetStuffById(w http.ResponseWriter, r *http.Request) {
+func GetStuffById(c *gin.Context) {
 	// get param from url
-	params := mux.Vars(r)
-	id := params["id"]
+	id := c.Param("id")
 
 	// build primitive to use in query filter
 	idPrimitive, err := primitive.ObjectIDFromHex(id)
@@ -134,7 +106,7 @@ func GetStuffById(w http.ResponseWriter, r *http.Request) {
 	result := collection.FindOne(ctx, bson.D{{"_id", idPrimitive}})
 
 	if result.Err() == mongo.ErrNoDocuments {
-		w.WriteHeader(http.StatusNotFound)
+		c.Status(http.StatusNotFound)
 		return
 	}
 
@@ -146,23 +118,14 @@ func GetStuffById(w http.ResponseWriter, r *http.Request) {
 		log.Print(err)
 	}
 
-	// marshal and return
-	marshalled, _ := json.Marshal(decoded)
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, string(marshalled))
+	// return object
+	c.JSON(http.StatusOK, decoded)
 }
 
-func SaveStuff(w http.ResponseWriter, r *http.Request) {
+func SaveStuff(c *gin.Context) {
 	// decode body into object
 	var decoded Stuff
-	decoder := json.NewDecoder(r.Body)
-	err := decoder.Decode(&decoded)
-
-	if err != nil {
-		log.Print(err)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
+	c.BindJSON(&decoded)
 
 	// set object id
 	decoded.ID = primitive.NewObjectID()
@@ -171,7 +134,7 @@ func SaveStuff(w http.ResponseWriter, r *http.Request) {
 	result, err := collection.InsertOne(ctx, decoded)
 	if err != nil {
 		log.Print(err)
-		w.WriteHeader(http.StatusInternalServerError)
+		c.Status(http.StatusInternalServerError)
 		return
 	}
 
@@ -187,27 +150,25 @@ func SaveStuff(w http.ResponseWriter, r *http.Request) {
 
 	// primitive.NewObjectID().String()
 	// set location header
-	location := r.Host + "/stuff/" + idString
-	w.Header().Set("location", location)
+	location := c.Request.Host + "/stuff/" + idString
+    c.Header("location", location)
 
-	w.WriteHeader(http.StatusCreated)
+	// w.WriteHeader(http.StatusCreated)
 
-	// marshal and return
-	marshalled, _ := json.Marshal(decoded)
-	fmt.Fprint(w, string(marshalled))
+	// return object
+    c.JSON(http.StatusCreated, decoded)
 }
 
 // delete object by id
-func DeleteStuffById(w http.ResponseWriter, r *http.Request) {
+func DeleteStuffById(c *gin.Context) {
 	// get param from url
-	params := mux.Vars(r)
-	id := params["id"]
+	id := c.Param("id")
 
 	// build primitive to use in query filter
 	idPrimitive, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
 		log.Print(err)
-		w.WriteHeader(http.StatusInternalServerError)
+		c.Status(http.StatusInternalServerError)
 		return
 	}
 
@@ -220,14 +181,13 @@ func DeleteStuffById(w http.ResponseWriter, r *http.Request) {
 
 	// set header to not found if nothing was deleted
 	if result.DeletedCount == 0 {
-		w.WriteHeader(http.StatusNotFound)
+		c.Status(http.StatusNotFound)
 	} else {
-		w.WriteHeader(http.StatusOK)
+		c.Status(http.StatusOK)
 	}
 }
 
 // test function
-func TestHandler(w http.ResponseWriter, _ *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "{\"status\": \"ok\"}")
+func TestHandler(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }

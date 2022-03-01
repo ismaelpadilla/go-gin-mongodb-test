@@ -12,15 +12,15 @@ RUN go mod download
 
 COPY *.go ./
 
-RUN go build -o /mux-test
+RUN go build -o /gin-test
 
 # DEPLOY
 FROM gcr.io/distroless/base-debian10
 
 WORKDIR /
 
-COPY --from=build /mux-test /mux-test
+COPY --from=build /gin-test /gin-test
 
 USER nonroot:nonroot
 
-ENTRYPOINT [ "/mux-test" ]
+ENTRYPOINT [ "/gin-test" ]
